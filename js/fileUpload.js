@@ -1,11 +1,11 @@
 /**
  * Funnel everything through this, in case we want to disable logging
- * ...could use log4js if not hacking
+ * ...could use log4js later
  */
 function debugLog(msg) {
 	msg = msg || "";
 
-	console.log(msg);
+	console.log("Box api: " + msg);
 }
 
 /**
@@ -216,7 +216,6 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 
 		function createFolder(name, callback) {
 			var urlSafeName = encodeURIComponent(name);
-			// ? share=1 ?
 			var url = restApi("create_folder",
 				"parent_id=0&share=0&name=" + urlSafeName);
 
@@ -271,81 +270,42 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 	};
 }
 
-function on_gmail(callback) {
-	var current_attempts = 0;
-	var max_attempts = 200;
-	var timeout = 1000;
-	
-	repeat_op = function(){
-		debugLog("waiting for gmail...");
-		if($('div').length > 25){
-			callback();
-		}
-		else{
-			current_attempts++;
-			if(current_attempts < max_attempts){
-				setTimeout(repeat_op, timeout);
-			}
-			else{
-				debugLog("gmail didn't load, giving up...");
-			}
-		}
-	}
-	repeat_op();
-}
-
 $(function(){
-	on_gmail(function(){
-		var baseUrl = "https://bvanevery.inside-box.net/api/1.0/";
-		var apiKey = "peri0kgij4frsycxon2o5ddgzce9y0y2";
-		var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
+  debugLog("Loading...");
+  /**
+   * For testing by box-js-sdk developer: must allow origin in Apache on Box side
+   <IfModule mod_headers.c>
+     Header set Access-Control-Allow-Origin *
+   </IfModule>
+   * All others: TODO Explain how to do this through a same origin proxy
+   * Alternative, release this as a Chrome proxy
+   */
+  var baseUrl = "https://bvanevery.inside-box.net/api/1.0/";
+  var apiKey = "peri0kgij4frsycxon2o5ddgzce9y0y2";
+  var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
 
-		var boxApi = CreateBoxApi(baseUrl, apiKey, authToken);
-		
-		$("head").append($("<style>"+
-		"			.meter-wrap{"+
-		"				position: relative;"+
-		"			}"+
-		"			.meter-wrap, .meter-value, .meter-text {"+
-		"				/* The width and height of your image */"+
-		"				width: 155px; height: 15px;"+
-		"			}"+
+  var boxApi = CreateBoxApi(baseUrl, apiKey, authToken);
 
-		"			.meter-wrap, .meter-value {"+
-		"				background: lightblue top left no-repeat;"+
-		"			}"+
+  debugLog("Binding to drag events...");
 
-		"			.meter-value {"+
-		"				background: url('img/barberpole.gif');"+
-		"			}"+
+  jQuery("body")
+    // Must prevent default of dragover
+    // ...http://asheepapart.blogspot.com/2011/11/html5-drag-and-drop-chrome-not-working.html
+    .bind('dragenter dragover', function(){ debugLog("dragging"); }, false);
+  jQuery("body")
+    .bind('drop', function(evt) {
+      evt.stopPropagation();
+      evt.preventDefault();
 
-		"			.meter-text {"+
-		"				position: absolute;"+
-		"				top:0; left:0;"+
-		"				color: #fff;"+
-		"				text-align: center;"+
-		"				width: 100%;"+
-		"			}"+
-		"		</style>"))
-		
-		box_div = $("<div id='box_file_bin' style='position: fixed;	top: 167px;	right: 87px;	width: 200px;	height: 200px;	background-color: lightBlue;	text-align: center;'>Drop your shit here<div class='meter-wrap' style='display:none;'>			<div class='meter-value' style='background-color: #8DBAD6; width: 0%;'>				<div class='meter-text'>				</div>			</div>		</div></div>");
-		$("body").append(box_div);
-		
-		box_div
-			.bind('dragenter dragover', function(){ console.log("dragging"); }, false)
-			.bind('drop', function(evt) {
-				evt.stopPropagation();
-				evt.preventDefault();
+      boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
+        for (var f=0; f < uploadedFiles.length; f += 1) {
+          debugLog('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
+        }
+      });
+    }
+  );
 
-				boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
-					for (var f=0; f < uploadedFiles.length; f += 1) {
-						debugLog('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
-					}
-				});
-			}
-		);
-	})
-	
+  debugLog("Done attaching events to body.");
 });
 
 // http://bvanevery.inside-box.net/api/1.0/rest?action=get_account_tree&api_key=peri0kgij4frsycxon2o5ddgzce9y0y2&auth_token=pav4elm92jo44hxfb2pf3e8vu536ey6q&folder_id=0&params[]=nofiles&params[]=nozip
