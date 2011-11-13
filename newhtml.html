@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>File Converter</title>
+		<script src="js/jquery-1.6.2.min.js"></script>
+		<style>
+			body {min-height: 800px;}
+
+			.meter-wrap{
+				position: relative;
+			}
+
+			.meter-wrap, .meter-value, .meter-text {
+				/* The width and height of your image */
+				width: 155px; height: 15px;
+			}
+
+			.meter-wrap, .meter-value {
+				background: lightblue top left no-repeat;
+			}
+
+			.meter-value {
+				background: url('img/barberpole.gif');
+			}
+
+			.meter-text {
+				position: absolute;
+				top:0; left:0;
+
+				color: #fff;
+				text-align: center;
+				width: 100%;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Zomg, upload your files to Box</h1>
+
+		<div class="meter-wrap" style="display:none;">
+			<div class="meter-value" style="background-color: #8DBAD6; width: 0%;">
+				<div class="meter-text">
+				</div>
+			</div>
+		</div>
+		<script src="js/fileUpload.js"></script>
+		<script src="js/goessner.xmlToJson.js"></script>
+	</body>
+</html>
