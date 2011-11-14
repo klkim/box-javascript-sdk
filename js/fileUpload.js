@@ -2,7 +2,7 @@
  * Funnel everything through this, in case we want to disable logging
  * ...could use log4js later
  */
-function debugLog(msg) {
+function boxLog(msg) {
 	msg = msg || "";
 
 	console.log("Box api: " + msg);
@@ -12,10 +12,45 @@ function debugLog(msg) {
  * Creates basic class to handle Box API interactions
  */
 function CreateBoxApi(baseUrl, apiKey, authToken) {
-	var meterWrap = jQuery(".meter-wrap");
+  authToken = authToken || genAuthToken();
 
+  // Currently, only one meter per page (i.e. accurate reporting of only one
+  // ...upload at a time)
+  // TODO - Dynamically add progress meter elems to page per upload started
+  var meter = createProgressMeter();
+
+  /**
+   * Generate an authentication token to use for this session
+   */
+  function genAuthToken() {
+    var boxUrl = baseUrl + "?rest=action=get_ticket&api_key=" + apiKey;
+
+    var ticket;
+    $.ajax({
+      url: boxUrl,
+      async: false,
+      success: function(response) {
+        var json = goessner.parseXmlStringToJsonObj(response);
+
+        if (!json) {
+          boxLog("Could not create a ticket for auth token");
+          throw new Exception("Error creating ticket with Box API");
+        }
+
+        ticket = json.response.ticket;
+      }
+    });
+
+    // Let user enter credenetials at:
+    // "https://www.box.net/api/1.0/auth/" + ticket
+
+    // Call baseUrl + "rest?action=get_auth_token&api_key=" + apiKey
+    // ...to get the auth_token
+
+    throw new Exception("Not implemented yet!")
+  }
 	/**
-	 * Url to REST API
+	 * Url to REST API for current auth
 	 */
 	function restApi(action, moreParams) {
 		return baseUrl + "?rest?action=" + action + "api_key=" + apiKey
@@ -23,6 +58,8 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 	}
 
 	/**
+   * Url to which to upload files
+   *
 	 * If no valid folder is provided, root is assumed
 	 */
 	function uploadUrl(folderId) {
@@ -31,52 +68,71 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		return baseUrl + "upload/" + authToken + "/" + folderId;
 	}
 
-	var meter = {
-		grow : function(percent) {
-			$('.meter-value').css('width', percent + '%');
-			$('.meter-text').text(percent + '%');
-		},
-		show : function() {
-			meterWrap.show();
-		},
-		hide : function() {
-			//meterWrap.hide('medium');
-			meterWrap.hide('slow');
-			$('.meter-value').css('width', '0');
-			$('.meter-text').text('');
-		}
-	};
+  /**
+   * The meter that will show the progress of the upload
+   */
+  function createProgressMeter() {
+    var meterWrap = jQuery(".meter-wrap");
 
-	// @TODO this should be an instance field, figure that out...
-	var estimated = {
-		total : 0,
-		percentage : function(progress) {
-			if (this.total == 0) return 0;
+    return {
+      grow : function(percent) {
+        $('.meter-value').css('width', percent + '%');
+        $('.meter-text').text(percent + '%');
+      },
+      show : function() {
+        meterWrap.show();
+      },
+      hide : function() {
+        //meterWrap.hide('medium');
+        meterWrap.hide('slow');
+        $('.meter-value').css('width', '0');
+        $('.meter-text').text('');
+      }
+    };
+  }
 
-			return Math.ceil(100, parseInt((progress / this.total) * 100));
-		}
-	};
+  /**
+   * Simple object to manage current estimation of the upload progress
+   */
+  function CreateEstimationMetric() {
+    return {
+      total : 0,
+      percentage : function(progress) {
+        if (this.total == 0) return 0;
 
+        return Math.ceil(100, parseInt((progress / this.total) * 100));
+      }
+    };
+  }
+
+  /**
+   * Extract the requested files for upload from drop event
+   */
 	function extractFiles(evt) {
 		var files = evt.originalEvent.dataTransfer.files;
 
 		// @TODO determine if we want to check for file.size > LIMIT
 
 		if (files.length < 1) {
-			debugLog("No files found in event. Nothing dragged?");
+			boxLog("No files found in event. Nothing dragged?");
 			return null;
 		}
 
 		return files;
-
 	}
 
-	function postProgressTicker(event) {
-		debugLog('Progress on upload. File size uploaded: ' + event.loaded);
+  /**
+   * Return a function that will calculate the estimated completion based on
+   * data in an upload event
+   */
+  function CreateProgressTicker(estimationMetrics) {
+    return function(uploadEvt) {
+      boxLog('Progress on upload. File size uploaded: ' + uploadEvt.loaded);
 
-		var percent = estimated.percentage(event.loaded);
-		meter.grow(percent);
-	}
+      var percent = estimationMetrics.percentage(uploadEvt.loaded);
+      meter.grow(percent);
+    }
+  }
 
 	/**
 	 * XHR completed, process it and send return to the callback function
@@ -85,8 +141,8 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		meter.hide();
 
 		if (xhr.status !== 200) {
-			debugLog('Upload returned bad status ' + xhr.status);
-			debugLog('Response: ' + (xhr.responseText || ''));
+			boxLog('Upload returned bad status ' + xhr.status);
+			boxLog('Response: ' + (xhr.responseText || ''));
 
 			return;
 		}
@@ -94,15 +150,15 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		var json = goessner.parseXmlStringToJsonObj(xhr.responseText);
 
 		if (!json) {
-			debugLog('Could not parse xml response =(' + xhr.responseText);
+			boxLog('Could not parse xml response =(' + xhr.responseText);
 			return;
 		}
 
 		var files = json.response.files;
 
 		if (!files) {
-			debugLog('Found no files in response');
-			debugLog('xml: ' + xhr.responseText);
+			boxLog('Found no files in response');
+			boxLog('xml: ' + xhr.responseText);
 			return;
 		}
 
@@ -132,7 +188,6 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 
 		if (!files) return;
 
-		// @TODO prob. can get rid of this method
 		postFiles(files, folder, callback);
 	}
 
@@ -141,15 +196,14 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 	 * ...callback with the info of the uploaded files as input
 	 */
 	function postFiles(files, folder, callback) {
-		// @TODO let's hope only one upload takes place at a time
-		estimated.progress = 0;
+    var estimated = CreateEstimationMetric();
 
-		debugLog('Attempting to upload ' + files.length + ' files.');
+		boxLog('Attempting to upload ' + files.length + ' files.');
 
 		// Add a form element for each file dropped
 		var formData = new FormData();
 		for (var f=0; f < files.length; f += 1) {
-			debugLog('file: ' + files[f].name);
+			boxLog('file: ' + files[f].name);
 			formData.append("file" + f, files[f]);
 
 			estimated.total += files[f].fileSize;
@@ -160,14 +214,14 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		xhr.open("POST", uploadUrl(folder['folder_id']), true);
 
 		xhr.onload = function(xhr_completed_evt) {
-			debugLog('XHR completed');
+			boxLog('XHR completed');
 
 			xhrComplete(xhr, callback);
 		};
 
 		// Upload specific events
 		var xhrUploader = xhr.upload;
-		xhrUploader.addEventListener("progress", postProgressTicker, false);
+		xhrUploader.addEventListener("progress", CreateProgressTicker(estimated), false);
 
 		meter.show();
 
@@ -177,11 +231,15 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		}
 		catch (e)
 		{
-			debugLog(e.description);
-			debugLog(e);
+			boxLog(e.description);
+			boxLog(e);
+      meter.hide();
 		}
 	}
 
+  /**
+   * API into folder specific things
+   */
 	function CreateFolderApi() {
 		function lookupFolder(name, callback) {
 			var url = restApi("get_account_tree",
@@ -193,7 +251,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 				var tree = json.response.tree;
 				if (!tree.folders.length) {
 					if (!tree.folders.folder) {
-						debugLog("No folders in tree!");
+						boxLog("No folders in tree!");
 						return callback(null);
 					}
 
@@ -223,7 +281,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 				var json = goessner.parseXmlStringToJsonObj(response);
 
 				if (!json) {
-					debugLog("Couldn't create folder " + name);
+					boxLog("Couldn't create folder " + name);
 					return;
 				}
 
@@ -265,13 +323,14 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 
 	var folderApi = CreateFolderApi();
 
+  // The only method really needed is uploading files to a folder
 	return {
 		folderApi : folderApi
 	};
 }
 
 $(function(){
-  debugLog("Loading...");
+  boxLog("Loading...");
   /**
    * For testing by box-js-sdk developer: must allow origin in Apache on Box side
    <IfModule mod_headers.c>
@@ -284,29 +343,29 @@ $(function(){
   var apiKey = "peri0kgij4frsycxon2o5ddgzce9y0y2";
   var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
 
-  var boxApi = CreateBoxApi(baseUrl, apiKey, authToken);
+  var boxApi = CreateBoxApi(baseUrl, apiKey, "");
 
-  debugLog("Binding to drag events...");
+  boxLog("Binding to drag events...");
 
   jQuery("body")
     // Must prevent default of dragover
     // ...http://asheepapart.blogspot.com/2011/11/html5-drag-and-drop-chrome-not-working.html
-    .bind('dragenter dragover', function(){ debugLog("dragging"); }, false);
+    .bind('dragenter dragover', function(){ boxLog("dragging"); }, false);
   jQuery("body")
     .bind('drop', function(evt) {
       evt.stopPropagation();
       evt.preventDefault();
 
+      // Upload files to root directory
       boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
         for (var f=0; f < uploadedFiles.length; f += 1) {
-          debugLog('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
+          boxLog('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
         }
       });
     }
   );
 
-  debugLog("Done attaching events to body.");
+  boxLog("Done attaching events to body.");
 });
 
-// http://bvanevery.inside-box.net/api/1.0/rest?action=get_account_tree&api_key=peri0kgij4frsycxon2o5ddgzce9y0y2&auth_token=pav4elm92jo44hxfb2pf3e8vu536ey6q&folder_id=0&params[]=nofiles&params[]=nozip
 // http://developers.box.net/w/page/12923951/ApiFunction_Upload%20and%20Download
