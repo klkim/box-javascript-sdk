@@ -30,6 +30,12 @@ boxApi = {
           throw new BoxError("Goessner fail: Can't parse json from xml.");
         }
 
+        if (!codylindley || !codylindley.swip
+          || typeof(codylindley.swip.createPopup) != "function") {
+          throw new BoxError("Could not find codylindley popup library."
+            + " Did you forget to load it?");
+        }
+
         boxApi.dbg("Self test passed; Api Loaded");
       },
     /**
@@ -99,7 +105,14 @@ function CreateAuthApi() {
     setTicket();
 
     // Let user enter credenetials at:
-    // "https://www.box.net/api/1.0/auth/" + ticket
+    // Anything fancy we can do to detect if pop-ups are blocked?
+    codylindley.swip.createPopup({
+      windowURL : boxApi.url + "auth/" + auth.ticket,
+      height: 700,
+      width: 1200,
+      top: 50,
+      left: 50
+    });
 
     // Call boxApi.url + "rest?action=get_auth_token&api_key=" + boxApi.apiKey
     // ...to get the auth_token
@@ -431,7 +444,7 @@ $(function(){
   jQuery("body")
     // Must prevent default of dragover
     // ...http://asheepapart.blogspot.com/2011/11/html5-drag-and-drop-chrome-not-working.html
-    .bind('dragenter dragover', function(){ boxApi.dbg("dragging"); }, false);
+    .bind('dragenter dragover', function(){boxApi.dbg("dragging");}, false);
   jQuery("body")
     .bind('drop', function(evt) {
       evt.stopPropagation();
