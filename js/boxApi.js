@@ -53,28 +53,50 @@ var apiLoader = {
   folderApi : CreateFileAndFolderApi
 };
 
+// Private auth data, doesn't need to be exposed
+var auth = {
+  ticket : "",
+   token : ""
+}
+
 function CreateAuthApi() {
   /**
-   * Generate an authentication token to use for this session
+   * Get a ticket for using the API
+   * http://developers.box.net/w/page/12923936/ApiFunction_get_ticket
    */
-  function genAuthToken() {
-    var boxUrl = boxApi.url + "?rest=action=get_ticket&api_key=" + boxApi.apiKey;
-
-    var ticket;
-    $.ajax({
-      url: boxUrl,
+  function setTicket() {
+    jQuery.ajax({
+      url: boxApi.url + "rest?action=get_ticket&api_key=" + boxApi.apiKey,
       async: false,
-      success: function(response) {
-        var json = goessner.parseXmlStringToJsonObj(response);
+      success: function(data, textStatus, jqXHR) {
+        var json = goessner.parseXmlStringToJsonObj(jqXHR.responseText);
 
         if (!json) {
           boxApi.log("Could not create a ticket for auth token");
           throw new BoxError("Error creating ticket with Box API");
         }
 
-        ticket = json.response.ticket;
+        auth.ticket = json.response.ticket;
       }
     });
+
+    if (!auth.ticket) {
+      throw new BoxError("Could not load ticket for auth token from Box API");
+    }
+
+    boxApi.dbg("Loaded ticket: " + auth.ticket);
+  }
+
+  /**
+   * Generate an authentication token to use for this session
+   */
+  function genAuthToken() {
+    if (boxApi.authToken) {
+      boxApi.dbg("Auth token already set");
+      return;
+    }
+
+    setTicket();
 
     // Let user enter credenetials at:
     // "https://www.box.net/api/1.0/auth/" + ticket
@@ -84,6 +106,10 @@ function CreateAuthApi() {
 
     throw new BoxError("Not implemented yet!")
   }
+
+  return {
+    genToken : genAuthToken
+  };
 }
 
 /**
@@ -395,7 +421,11 @@ $(function(){
    */
 
   boxApi.init();
+  boxApi.load("authApi");
   boxApi.load("folderApi");
+
+  boxApi.authApi.genToken();
+
   boxApi.dbg("Binding to drag events...");
 
   jQuery("body")
