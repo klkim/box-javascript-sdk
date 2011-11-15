@@ -1,5 +1,4 @@
 (function(){
-// var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
 boxApi = {
         url : "https://bvanevery.inside-box.net/api/1.0/",
      apiKey : "peri0kgij4frsycxon2o5ddgzce9y0y2",
@@ -13,6 +12,13 @@ boxApi = {
 
         console.log("Box api: " + msg);
       },
+    /**
+     * Use this to print messages to UI
+     */
+    msg : function boxMsg(msg) {
+      // @TODO Put this into a light box or something
+      throw new BoxError(msg);
+    },
     /**
      * Initialize the api and self test
      */
@@ -61,7 +67,13 @@ var apiLoader = {
 
 // Private auth data, doesn't need to be exposed
 var auth = {
+     url : function() {
+       return boxApi.url
+         + "rest?action=get_auth_token&api_key=" + boxApi.apiKey
+         + "&ticket=" + this.ticket;
+     },
   ticket : "",
+attempts : 30,
    token : ""
 }
 
@@ -71,6 +83,10 @@ function CreateAuthApi() {
    * http://developers.box.net/w/page/12923936/ApiFunction_get_ticket
    */
   function setTicket() {
+    if (auth.ticket) return;
+
+    // Block until we get a ticket
+    // ...this is critical to rest of our progress
     jQuery.ajax({
       url: boxApi.url + "rest?action=get_ticket&api_key=" + boxApi.apiKey,
       async: false,
@@ -95,18 +111,20 @@ function CreateAuthApi() {
 
   /**
    * Generate an authentication token to use for this session
+   *
+   * @param callback Function to call once we have an auth token
    */
-  function genAuthToken() {
+  function genAuthToken(callback) {
     if (boxApi.authToken) {
       boxApi.dbg("Auth token already set");
+      callback();
       return;
     }
 
     setTicket();
 
-    // Let user enter credenetials at:
-    // Anything fancy we can do to detect if pop-ups are blocked?
-    codylindley.swip.createPopup({
+    // Let user enter credentials
+    var authWindow = codylindley.swip.createPopup({
       windowURL : boxApi.url + "auth/" + auth.ticket,
       height: 700,
       width: 1200,
@@ -114,10 +132,58 @@ function CreateAuthApi() {
       left: 50
     });
 
-    // Call boxApi.url + "rest?action=get_auth_token&api_key=" + boxApi.apiKey
-    // ...to get the auth_token
+    if (codylindley.swip.assertOpened(authWindow)) {
+      boxApi.msg("Could not open popup for authentication."
+        + " Do you have popups blocked?");
+      return;
+    }
 
-    throw new BoxError("Not implemented yet!")
+    // @TOOD Figure out a little loading icon to show/hide meanwhile
+    // ...and a "cancel" (maybe wrong password?)
+    pollForTokenOrGiveUp(auth.url(), 0, callback);
+  }
+
+  /**
+   * Poll the get_auth_token action until it bears fruit
+   * ...or give up after max attempts
+   */
+  function pollForTokenOrGiveUp(authUrl, cumulative, callback) {
+    boxApi.dbg("Polling for auth token attempt " + cumulative);
+
+    if (cumulative > auth.attempts) {
+      boxApi.msg("Giving up on auth token after " + auth.attempts + " attempts");
+      return;
+    }
+
+    $.get(authUrl, function(data, textStatus, jqXHR) {
+      var json = goessner.parseXmlStringToJsonObj(jqXHR.responseText);
+
+      if (!json) {
+        boxApi.dbg("Couldn't parse xml " + response);
+        return;
+      }
+
+      // Still waiting for window to close?
+      if (json.response.status == "not_logged_in") {
+        setTimeout(function() {
+          pollForTokenOrGiveUp(authUrl, cumulative + 1, callback);
+        }, 1000);
+
+        return;
+      }
+
+      if (json.response.status != "get_auth_token_ok") {
+        boxApi.msg("Couldn't load auth token. Did you enter the correct creds?");
+        return;
+      }
+
+      // Keep a private copy
+      auth.token = json.response.auth_token;
+      // Set the public version
+      boxApi.authToken = auth.token;
+
+      callback();
+    });
   }
 
   return {
@@ -437,7 +503,11 @@ $(function(){
   boxApi.load("authApi");
   boxApi.load("folderApi");
 
-  boxApi.authApi.genToken();
+  jQuery("h3.authToken").click(function() {
+    boxApi.authApi.genToken(function() {
+      boxApi.dbg("Got a token!");
+    });
+  });
 
   boxApi.dbg("Binding to drag events...");
 
@@ -449,6 +519,11 @@ $(function(){
     .bind('drop', function(evt) {
       evt.stopPropagation();
       evt.preventDefault();
+
+      if (!boxApi.authToken) {
+        boxApi.msg("No auth token, cannot upload. Please log-in.");
+        return;
+      }
 
       // Upload files to root directory
       boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
@@ -463,3 +538,5 @@ $(function(){
 });
 
 // http://developers.box.net/w/page/12923951/ApiFunction_Upload%20and%20Download
+// var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
+// ticket : "llf0tdla33pcnf7cv629v6nt88j2iyqk",

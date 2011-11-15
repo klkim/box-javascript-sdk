@@ -54,8 +54,12 @@ var codylindley = {
         return window.open(settings.windowURL, settings.windowName, windowFeatures+',left=' + settings.left +',top=' + settings.top).focus();
       }
 
-      return false;
+      return null;
+    },
+    assertOpened : function(popup) {
+      // May not work in Chrome,
+      // http://stackoverflow.com/questions/668286/detect-blocked-popup-in-chrome
+      return (popup && !popup.closed && typeof(popup.closed) != "undefined");
     }
-
   }
 };
