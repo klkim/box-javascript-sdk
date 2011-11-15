@@ -1,29 +1,64 @@
-/**
- * Funnel everything through this, in case we want to disable logging
- * ...could use log4js later
- */
-function boxLog(msg) {
-	msg = msg || "";
+(function(){
+// var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
+boxApi = {
+        url : "https://bvanevery.inside-box.net/api/1.0/",
+     apiKey : "peri0kgij4frsycxon2o5ddgzce9y0y2",
+  authToken : "",
+    /**
+     * Funnel everything through this, in case we want to disable logging
+     * ...could use log4js later
+     */
+    dbg : function boxDbg(msg) {
+        msg = msg || "";
 
-	console.log("Box api: " + msg);
-}
+        console.log("Box api: " + msg);
+      },
+    /**
+     * Initialize the api and self test
+     */
+    init : function boxApiInit() {
+        if (!goessner
+          || typeof(goessner.parseXmlStringToJsonObj) != "function") {
+          throw new BoxError("Could not find goessner library."
+            + " Did you forget to load it?");
+        }
 
-/**
- * Creates basic class to handle Box API interactions
- */
-function CreateBoxApi(baseUrl, apiKey, authToken) {
-  authToken = authToken || genAuthToken();
+        var xml = "<xml>value</xml>";
+        var json = goessner.parseXmlStringToJsonObj(xml);
 
-  // Currently, only one meter per page (i.e. accurate reporting of only one
-  // ...upload at a time)
-  // TODO - Dynamically add progress meter elems to page per upload started
-  var meter = createProgressMeter();
+        if (json.xml != "value") {
+          throw new BoxError("Goessner fail: Can't parse json from xml.");
+        }
 
+        boxApi.dbg("Self test passed; Api Loaded");
+      },
+    /**
+     * Load the requested API type
+     * E.g. boxApi.load("folderApi") will create the folderApi object, which
+     * ...can then be accessed like: boxApi.folderApi...
+     */
+    load : function boxApiLoad(type) {
+        if (typeof(apiLoader[type]) != "function")
+        {
+          throw new BoxError("Invalid box api type requested, " + type);
+        }
+
+        boxApi[type] = apiLoader[type]();
+      }
+};
+
+// Metadata to wire the type name to the creation methods
+var apiLoader = {
+    authApi : CreateAuthApi,
+  folderApi : CreateFileAndFolderApi
+};
+
+function CreateAuthApi() {
   /**
    * Generate an authentication token to use for this session
    */
   function genAuthToken() {
-    var boxUrl = baseUrl + "?rest=action=get_ticket&api_key=" + apiKey;
+    var boxUrl = boxApi.url + "?rest=action=get_ticket&api_key=" + boxApi.apiKey;
 
     var ticket;
     $.ajax({
@@ -33,8 +68,8 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
         var json = goessner.parseXmlStringToJsonObj(response);
 
         if (!json) {
-          boxLog("Could not create a ticket for auth token");
-          throw new Exception("Error creating ticket with Box API");
+          boxApi.log("Could not create a ticket for auth token");
+          throw new BoxError("Error creating ticket with Box API");
         }
 
         ticket = json.response.ticket;
@@ -44,17 +79,32 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
     // Let user enter credenetials at:
     // "https://www.box.net/api/1.0/auth/" + ticket
 
-    // Call baseUrl + "rest?action=get_auth_token&api_key=" + apiKey
+    // Call boxApi.url + "rest?action=get_auth_token&api_key=" + boxApi.apiKey
     // ...to get the auth_token
 
-    throw new Exception("Not implemented yet!")
+    throw new BoxError("Not implemented yet!")
   }
+}
+
+/**
+ * Creates basic class to handle Box API interactions
+ * with folders and files
+ *
+ * @TODO break these apart
+ */
+function CreateFileAndFolderApi() {
+  // Currently, only one meter per page (i.e. accurate reporting of only one
+  // ...upload at a time)
+  // TODO - Dynamically add progress meter elems to page per upload started
+  var meter = createProgressMeter();
+
+
 	/**
 	 * Url to REST API for current auth
 	 */
 	function restApi(action, moreParams) {
-		return baseUrl + "?rest?action=" + action + "api_key=" + apiKey
-			+ "&auth_token=" + authToken + "&" + (moreParams || "");
+		return boxApi.url + "?rest?action=" + action + "api_key=" + boxApi.apiKey
+			+ "&auth_token=" + boxApi.authToken + "&" + (moreParams || "");
 	}
 
 	/**
@@ -65,7 +115,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 	function uploadUrl(folderId) {
 		folderId = folderId || "0";
 
-		return baseUrl + "upload/" + authToken + "/" + folderId;
+		return boxApi.url + "upload/" + boxApi.authToken + "/" + folderId;
 	}
 
   /**
@@ -114,7 +164,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		// @TODO determine if we want to check for file.size > LIMIT
 
 		if (files.length < 1) {
-			boxLog("No files found in event. Nothing dragged?");
+			boxApi.dbg("No files found in event. Nothing dragged?");
 			return null;
 		}
 
@@ -127,7 +177,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
    */
   function CreateProgressTicker(estimationMetrics) {
     return function(uploadEvt) {
-      boxLog('Progress on upload. File size uploaded: ' + uploadEvt.loaded);
+      boxApi.dbg('Progress on upload. File size uploaded: ' + uploadEvt.loaded);
 
       var percent = estimationMetrics.percentage(uploadEvt.loaded);
       meter.grow(percent);
@@ -141,8 +191,8 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		meter.hide();
 
 		if (xhr.status !== 200) {
-			boxLog('Upload returned bad status ' + xhr.status);
-			boxLog('Response: ' + (xhr.responseText || ''));
+			boxApi.dbg('Upload returned bad status ' + xhr.status);
+			boxApi.dbg('Response: ' + (xhr.responseText || ''));
 
 			return;
 		}
@@ -150,15 +200,15 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		var json = goessner.parseXmlStringToJsonObj(xhr.responseText);
 
 		if (!json) {
-			boxLog('Could not parse xml response =(' + xhr.responseText);
+			boxApi.dbg('Could not parse xml response =(' + xhr.responseText);
 			return;
 		}
 
 		var files = json.response.files;
 
 		if (!files) {
-			boxLog('Found no files in response');
-			boxLog('xml: ' + xhr.responseText);
+			boxApi.dbg('Found no files in response');
+			boxApi.dbg('xml: ' + xhr.responseText);
 			return;
 		}
 
@@ -198,12 +248,12 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 	function postFiles(files, folder, callback) {
     var estimated = CreateEstimationMetric();
 
-		boxLog('Attempting to upload ' + files.length + ' files.');
+		boxApi.dbg('Attempting to upload ' + files.length + ' files.');
 
 		// Add a form element for each file dropped
 		var formData = new FormData();
 		for (var f=0; f < files.length; f += 1) {
-			boxLog('file: ' + files[f].name);
+			boxApi.dbg('file: ' + files[f].name);
 			formData.append("file" + f, files[f]);
 
 			estimated.total += files[f].fileSize;
@@ -214,7 +264,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		xhr.open("POST", uploadUrl(folder['folder_id']), true);
 
 		xhr.onload = function(xhr_completed_evt) {
-			boxLog('XHR completed');
+			boxApi.dbg('XHR completed');
 
 			xhrComplete(xhr, callback);
 		};
@@ -231,8 +281,8 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		}
 		catch (e)
 		{
-			boxLog(e.description);
-			boxLog(e);
+			boxApi.dbg(e.description);
+			boxApi.dbg(e);
       meter.hide();
 		}
 	}
@@ -251,7 +301,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 				var tree = json.response.tree;
 				if (!tree.folders.length) {
 					if (!tree.folders.folder) {
-						boxLog("No folders in tree!");
+						boxApi.dbg("No folders in tree!");
 						return callback(null);
 					}
 
@@ -281,7 +331,7 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 				var json = goessner.parseXmlStringToJsonObj(response);
 
 				if (!json) {
-					boxLog("Couldn't create folder " + name);
+					boxApi.dbg("Couldn't create folder " + name);
 					return;
 				}
 
@@ -321,16 +371,20 @@ function CreateBoxApi(baseUrl, apiKey, authToken) {
 		};
 	}
 
-	var folderApi = CreateFolderApi();
-
   // The only method really needed is uploading files to a folder
-	return {
-		folderApi : folderApi
-	};
+	return CreateFolderApi();
 }
 
+/**
+ * Custom error type
+ */
+var BoxError = jQuery.extend(Error, {});
+
+// End define boxApi
+}());
+
 $(function(){
-  boxLog("Loading...");
+  boxApi.dbg("Loading...");
   /**
    * For testing by box-js-sdk developer: must allow origin in Apache on Box side
    <IfModule mod_headers.c>
@@ -339,18 +393,15 @@ $(function(){
    * All others: TODO Explain how to do this through a same origin proxy
    * Alternative, release this as a Chrome proxy
    */
-  var baseUrl = "https://bvanevery.inside-box.net/api/1.0/";
-  var apiKey = "peri0kgij4frsycxon2o5ddgzce9y0y2";
-  var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
 
-  var boxApi = CreateBoxApi(baseUrl, apiKey, "");
-
-  boxLog("Binding to drag events...");
+  boxApi.init();
+  boxApi.load("folderApi");
+  boxApi.dbg("Binding to drag events...");
 
   jQuery("body")
     // Must prevent default of dragover
     // ...http://asheepapart.blogspot.com/2011/11/html5-drag-and-drop-chrome-not-working.html
-    .bind('dragenter dragover', function(){ boxLog("dragging"); }, false);
+    .bind('dragenter dragover', function(){ boxApi.dbg("dragging"); }, false);
   jQuery("body")
     .bind('drop', function(evt) {
       evt.stopPropagation();
@@ -359,13 +410,13 @@ $(function(){
       // Upload files to root directory
       boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
         for (var f=0; f < uploadedFiles.length; f += 1) {
-          boxLog('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
+          boxApi.dbg('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
         }
       });
     }
   );
 
-  boxLog("Done attaching events to body.");
+  boxApi.dbg("Done attaching events to body.");
 });
 
 // http://developers.box.net/w/page/12923951/ApiFunction_Upload%20and%20Download
