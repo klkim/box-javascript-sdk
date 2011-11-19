@@ -15,8 +15,9 @@ boxApi = {
     /**
      * Use this to print messages to UI
      */
-    msg : function boxMsg(msg) {
+    alert : function boxAlert(msg) {
       // @TODO Put this into a light box or something
+      this.loadingMode(false);
       throw new BoxError(msg);
     },
     /**
@@ -56,7 +57,15 @@ boxApi = {
         }
 
         boxApi[type] = apiLoader[type]();
-      }
+      },
+    /**
+     * Show/hide the "loading" stuff
+     */
+    loadingMode : function boxApiSpinner(show) {
+      // Could also do a lightbox kind of thing
+      // And possibly have a cancel button
+      spinnerGif[show ? "show" : "hide"]();
+    }
 };
 
 // Metadata to wire the type name to the creation methods
@@ -64,6 +73,8 @@ var apiLoader = {
     authApi : CreateAuthApi,
   folderApi : CreateFileAndFolderApi
 };
+
+var spinnerGif = jQuery('#spinnerGif').hide();
 
 // Private auth data, doesn't need to be exposed
 var auth = {
@@ -87,6 +98,7 @@ function CreateAuthApi() {
 
     // Block until we get a ticket
     // ...this is critical to rest of our progress
+    boxApi.dbg("Blocking until we get a ticket");
     jQuery.ajax({
       url: boxApi.url + "rest?action=get_ticket&api_key=" + boxApi.apiKey,
       async: false,
@@ -133,13 +145,13 @@ function CreateAuthApi() {
     });
 
     if (codylindley.swip.assertOpened(authWindow)) {
-      boxApi.msg("Could not open popup for authentication."
+      boxApi.alert("Could not open popup for authentication."
         + " Do you have popups blocked?");
       return;
     }
 
-    // @TOOD Figure out a little loading icon to show/hide meanwhile
-    // ...and a "cancel" (maybe wrong password?)
+    // @TODO show "cancel" next to loading gif (maybe wrong password?)
+    boxApi.loadingMode(true);
     pollForTokenOrGiveUp(auth.url(), 0, callback);
   }
 
@@ -151,7 +163,7 @@ function CreateAuthApi() {
     boxApi.dbg("Polling for auth token attempt " + cumulative);
 
     if (cumulative > auth.attempts) {
-      boxApi.msg("Giving up on auth token after " + auth.attempts + " attempts");
+      boxApi.alert("Giving up on auth token after " + cumulative + " attempts");
       return;
     }
 
@@ -159,7 +171,7 @@ function CreateAuthApi() {
       var json = goessner.parseXmlStringToJsonObj(jqXHR.responseText);
 
       if (!json) {
-        boxApi.dbg("Couldn't parse xml " + response);
+        boxApi.alert("Couldn't parse xml " + jqXHR.responseText);
         return;
       }
 
@@ -173,7 +185,8 @@ function CreateAuthApi() {
       }
 
       if (json.response.status != "get_auth_token_ok") {
-        boxApi.msg("Couldn't load auth token. Did you enter the correct creds?");
+        // The curious user can look at the browser's xhr tab for more info
+        boxApi.alert("Couldn't load auth token. Did you enter the correct creds?");
         return;
       }
 
@@ -182,6 +195,7 @@ function CreateAuthApi() {
       // Set the public version
       boxApi.authToken = auth.token;
 
+      boxApi.loadingMode(false);
       callback();
     });
   }
@@ -195,7 +209,7 @@ function CreateAuthApi() {
  * Creates basic class to handle Box API interactions
  * with folders and files
  *
- * @TODO break these apart
+ * @TODO break folder and file apart
  */
 function CreateFileAndFolderApi() {
   // Currently, only one meter per page (i.e. accurate reporting of only one
@@ -203,25 +217,25 @@ function CreateFileAndFolderApi() {
   // TODO - Dynamically add progress meter elems to page per upload started
   var meter = createProgressMeter();
 
+  /**
+   * Url to REST API for current auth
+   */
+  function restApi(action, moreParams) {
+    return boxApi.url + "rest?action=" + action + "&api_key=" + boxApi.apiKey
+      + "&auth_token=" + boxApi.authToken + "&" + (moreParams || "");
+  }
 
-	/**
-	 * Url to REST API for current auth
-	 */
-	function restApi(action, moreParams) {
-		return boxApi.url + "?rest?action=" + action + "api_key=" + boxApi.apiKey
-			+ "&auth_token=" + boxApi.authToken + "&" + (moreParams || "");
-	}
-
-	/**
+  /**
    * Url to which to upload files
    *
-	 * If no valid folder is provided, root is assumed
-	 */
-	function uploadUrl(folderId) {
-		folderId = folderId || "0";
+   * If no valid folder is provided, root is assumed
+   */
+  function uploadUrl(folder) {
+    // Folder exists (@id), just created (folder_id), or root (0)
+    var folderId = folder['@id'] || folder['folder_id'] || '0';
 
-		return boxApi.url + "upload/" + boxApi.authToken + "/" + folderId;
-	}
+    return boxApi.url + "upload/" + boxApi.authToken + "/" + folderId;
+  }
 
   /**
    * The meter that will show the progress of the upload
@@ -263,18 +277,18 @@ function CreateFileAndFolderApi() {
   /**
    * Extract the requested files for upload from drop event
    */
-	function extractFiles(evt) {
-		var files = evt.originalEvent.dataTransfer.files;
+  function extractFiles(evt) {
+    var files = evt.originalEvent.dataTransfer.files;
 
-		// @TODO determine if we want to check for file.size > LIMIT
+    // @TODO determine if we want to check for file.size > LIMIT
 
-		if (files.length < 1) {
-			boxApi.dbg("No files found in event. Nothing dragged?");
-			return null;
-		}
+    if (files.length < 1) {
+      boxApi.dbg("No files found in event. Nothing dragged?");
+      return null;
+    }
 
-		return files;
-	}
+    return files;
+  }
 
   /**
    * Return a function that will calculate the estimated completion based on
@@ -289,195 +303,192 @@ function CreateFileAndFolderApi() {
     }
   }
 
-	/**
-	 * XHR completed, process it and send return to the callback function
-	 */
-	function xhrComplete(xhr, callback) {
-		meter.hide();
+  /**
+   * XHR completed, process it and send return to the callback function
+   */
+  function xhrComplete(xhr, callback) {
+    meter.hide();
 
-		if (xhr.status !== 200) {
-			boxApi.dbg('Upload returned bad status ' + xhr.status);
-			boxApi.dbg('Response: ' + (xhr.responseText || ''));
+    if (xhr.status !== 200) {
+      boxApi.dbg('Upload returned bad status ' + xhr.status);
+      boxApi.dbg('Response: ' + (xhr.responseText || ''));
 
-			return;
-		}
+      return;
+    }
 
-		var json = goessner.parseXmlStringToJsonObj(xhr.responseText);
+    var json = goessner.parseXmlStringToJsonObj(xhr.responseText);
 
-		if (!json) {
-			boxApi.dbg('Could not parse xml response =(' + xhr.responseText);
-			return;
-		}
+    if (!json) {
+      boxApi.dbg('Could not parse xml response =(' + xhr.responseText);
+      return;
+    }
 
-		var files = json.response.files;
+    var files = json.response.files;
 
-		if (!files) {
-			boxApi.dbg('Found no files in response');
-			boxApi.dbg('xml: ' + xhr.responseText);
-			return;
-		}
+    if (!files) {
+      boxApi.dbg('Found no files in response');
+      boxApi.dbg('xml: ' + xhr.responseText);
+      return;
+    }
 
-		// Force an array if only one element
-		if (!files.length) {
-			files = [files.file];
-		}
+    // Force an array if only one element
+    if (!files.length) {
+      files = [files.file];
+    }
 
-		var fileInfo = []
-		for (var f=0; f < files.length; f += 1) {
-			fileInfo.push({
-					id : files[f]['@id'],
-					name : files[f]['@file_name']
-				});
-		}
+    var fileInfo = []
+    for (var f=0; f < files.length; f += 1) {
+      fileInfo.push({
+          id : files[f]['@id'],
+          name : files[f]['@file_name']
+        });
+    }
 
-		// Send file info back out to caller
-		callback(fileInfo);
-	}
+    // Send file info back out to caller
+    callback(fileInfo);
+  }
 
-	/**
-	 * Extracts files from an event and uploads them to Box, then calls the
-	 * ...callback with the info of the uploaded files as input
-	 */
-	function postFilesFromEvent(evt, folder, callback) {
-		var files = extractFiles(evt);
+  /**
+   * Uploads a collection of DOM File objects, then calls the
+   * ...callback with the info of the uploaded files as input
+   */
+  function postFiles(files, folder, callback) {
+    if (!files) return;
 
-		if (!files) return;
-
-		postFiles(files, folder, callback);
-	}
-
-	/**
-	 * Uploads a collection of DOM File objects, then calls the
-	 * ...callback with the info of the uploaded files as input
-	 */
-	function postFiles(files, folder, callback) {
     var estimated = CreateEstimationMetric();
 
-		boxApi.dbg('Attempting to upload ' + files.length + ' files.');
+    boxApi.dbg('Attempting to upload ' + files.length + ' files.');
 
-		// Add a form element for each file dropped
-		var formData = new FormData();
-		for (var f=0; f < files.length; f += 1) {
-			boxApi.dbg('file: ' + files[f].name);
-			formData.append("file" + f, files[f]);
+    // Add a form element for each file dropped
+    var formData = new FormData();
+    for (var f=0; f < files.length; f += 1) {
+      boxApi.dbg('file: ' + files[f].name);
+      formData.append("file" + f, files[f]);
 
-			estimated.total += files[f].fileSize;
-		}
+      estimated.total += files[f].fileSize;
+    }
 
-		// Upload the root box folder (in bvanevery, for bvanevery@box.net)
-		var xhr = new XMLHttpRequest();
-		xhr.open("POST", uploadUrl(folder['folder_id']), true);
+    // Upload the root box folder (in bvanevery, for bvanevery@box.net)
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl(folder), true);
 
-		xhr.onload = function(xhr_completed_evt) {
-			boxApi.dbg('XHR completed');
+    xhr.onload = function(xhr_completed_evt) {
+      boxApi.dbg('XHR completed');
 
-			xhrComplete(xhr, callback);
-		};
+      xhrComplete(xhr, callback);
+    };
 
-		// Upload specific events
-		var xhrUploader = xhr.upload;
-		xhrUploader.addEventListener("progress", CreateProgressTicker(estimated), false);
+    // Upload specific events
+    var xhrUploader = xhr.upload;
+    xhrUploader.addEventListener("progress", CreateProgressTicker(estimated), false);
 
-		meter.show();
+    meter.show();
 
-		try
-		{
-			xhr.send(formData);
-		}
-		catch (e)
-		{
-			boxApi.dbg(e.description);
-			boxApi.dbg(e);
+    try
+    {
+      xhr.send(formData);
+    }
+    catch (e)
+    {
+      boxApi.dbg(e.description);
+      boxApi.dbg(e);
       meter.hide();
-		}
-	}
+    }
+  }
 
   /**
    * API into folder specific things
    */
-	function CreateFolderApi() {
-		function lookupFolder(name, callback) {
-			var url = restApi("get_account_tree",
-				"folder_id=0&params[]=nofiles&params[]=nozip&params[]=onelevel");
+  function CreateFolderApi() {
+    function lookupFolder(name, callback) {
+      var url = restApi("get_account_tree",
+        "folder_id=0&params[]=nofiles&params[]=nozip&params[]=onelevel");
 
-			$.get(url, function(response) {
-				var json = goessner.parseXmlStringToJsonObj(response);
+      $.get(url, function(data, textStatus, jqXHR) {
+        var json = goessner.parseXmlStringToJsonObj(jqXHR.responseText);
 
-				var tree = json.response.tree;
-				if (!tree.folders.length) {
-					if (!tree.folders.folder) {
-						boxApi.dbg("No folders in tree!");
-						return callback(null);
-					}
+        var tree = json.response.tree;
 
-					// Make an array
-					tree.folders = [tree.folders.folder];
-				}
+        // tree.folder = root id = 0
+        tree.root = tree.folder;
 
-				// select where folder.name == name
-				var foldersLen = tree.folders.length;
-				for (var f=0; f < foldersLen; f += 1) {
-					var folder = tree.folders[f];
-					if (folder['@name'] == name) {
-						return callback(folder);
-					}
-				}
+        if (!tree.root.folders) {
+          boxApi.dbg("No folders in root!");
+          return callback(null);
+        }
 
-				return callback(null);
-			});
-		}
+        // Force an array if there is only one child of the root folde
+        if (!tree.root.folders.folder.length) {
+          tree.root.folders.folder = [tree.root.folders.folder];
+        }
 
-		function createFolder(name, callback) {
-			var urlSafeName = encodeURIComponent(name);
-			var url = restApi("create_folder",
-				"parent_id=0&share=0&name=" + urlSafeName);
+        // select where folder.name == name
+        var foldersLen = tree.root.folders.folder.length;
+        for (var f=0; f < foldersLen; f += 1) {
+          var folder = tree.root.folders.folder[f];
+          if (folder['@name'] == name) {
+            return callback(folder);
+          }
+        }
 
-			$.get(url, function(response) {
-				var json = goessner.parseXmlStringToJsonObj(response);
+        return callback(null);
+      });
+    }
 
-				if (!json) {
-					boxApi.dbg("Couldn't create folder " + name);
-					return;
-				}
+    function createFolder(name, callback) {
+      var urlSafeName = encodeURIComponent(name);
+      var url = restApi("create_folder",
+        "parent_id=0&share=0&name=" + urlSafeName);
 
-				callback(response.folder);
-			});
-		}
+      $.get(url, function(data, textStatus, jqXHR) {
+        var json = goessner.parseXmlStringToJsonObj(jqXHR.responseText);
 
-		/**
-		 * Find folder or create it, then send it to the callback method
-		 */
-		function getOrCreateFolder(name, callback) {
-			lookupFolder(name, function(folder){
-				if (folder == null) {
-					createFolder(name, callback);
+        if (!json) {
+          boxApi.dbg("Couldn't create folder " + name);
           return;
-				}
+        }
 
-				callback(folder);
-			});
-		}
+        callback(json.response.folder);
+      });
+    }
 
-		function uploadFilesToFolder(evt, name, callback) {
-			// No folder requested, just upload into root
-			if (!name) {
-				postFilesFromEvent(evt, {}, callback);
-				return;
-			}
+    /**
+     * Find folder or create it, then send it to the callback method
+     */
+    function getOrCreateFolder(name, callback) {
+      lookupFolder(name, function(folder){
+        if (folder == null) {
+          createFolder(name, callback);
+          return;
+        }
 
-			getOrCreateFolder(name, function(folder) {
-				postFilesFromEvent(evt, folder, callback);
-			});
-		}
+        callback(folder);
+      });
+    }
 
-		// Public methods exposed for folder API
-		return {
-			uploadFilesToFolder : uploadFilesToFolder
-		};
-	}
+    function uploadFilesToFolder(evt, folderName, callback) {
+      var files = extractFiles(evt);
+
+      // No folder requested, just upload into root
+      if (!folderName) {
+        postFiles(files, {}, callback);
+        return;
+      }
+
+      // files = evt.originalEvent.dataTransfer.files;
+      getOrCreateFolder(folderName, function(folder) {
+        postFiles(files, folder, callback);
+      });
+    }
+
+    // Public methods exposed for folder API
+    return {
+      uploadFilesToFolder : uploadFilesToFolder
+    };
+  }
 
   // The only method really needed is uploading files to a folder
-	return CreateFolderApi();
+  return CreateFolderApi();
 }
 
 /**
@@ -521,12 +532,13 @@ $(function(){
       evt.preventDefault();
 
       if (!boxApi.authToken) {
-        boxApi.msg("No auth token, cannot upload. Please log-in.");
+        boxApi.alert("No auth token, cannot upload. Please log-in.");
         return;
       }
 
       // Upload files to root directory
-      boxApi.folderApi.uploadFilesToFolder(evt, '', function(uploadedFiles) {
+      var folderNameForUpload = '';
+      boxApi.folderApi.uploadFilesToFolder(evt, folderNameForUpload, function(uploadedFiles) {
         for (var f=0; f < uploadedFiles.length; f += 1) {
           boxApi.dbg('Uploaded file: ' + uploadedFiles[f].id + ': ' + uploadedFiles[f].name);
         }
@@ -538,5 +550,3 @@ $(function(){
 });
 
 // http://developers.box.net/w/page/12923951/ApiFunction_Upload%20and%20Download
-// var authToken = "pav4elm92jo44hxfb2pf3e8vu536ey6q";
-// ticket : "llf0tdla33pcnf7cv629v6nt88j2iyqk",
