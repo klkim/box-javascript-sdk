@@ -1,4 +1,3 @@
-// Namespace this junk...
 var goessner = {};
 
 (function () {

@@ -1,7 +1,7 @@
 (function(){
 boxApi = {
-        url : "https://bvanevery.inside-box.net/api/1.0/",
-     apiKey : "peri0kgij4frsycxon2o5ddgzce9y0y2",
+        url : "", // e.g. https://proxy.example.com/",
+     apiKey : "", // see https://www.box.com/developers/services
   authToken : "",
     /**
      * Funnel everything through this, in case we want to disable logging
@@ -24,40 +24,54 @@ boxApi = {
      * Initialize the api and self test
      */
     init : function boxApiInit() {
-        if (!goessner
-          || typeof(goessner.parseXmlStringToJsonObj) != "function") {
-          throw new BoxError("Could not find goessner library."
-            + " Did you forget to load it?");
-        }
+      function fail(msg) {
+        throw new BoxError(msg);
+      }
 
-        var xml = "<xml>value</xml>";
-        var json = goessner.parseXmlStringToJsonObj(xml);
+      if (typeof(XMLHttpRequest) == "undefined") {
+        fail("Box JavaScript API only supported in browsers compatible with XMLHttpRequest");
+      }
 
-        if (json.xml != "value") {
-          throw new BoxError("Goessner fail: Can't parse json from xml.");
-        }
+      if (!boxApi.url) {
+        fail("Must provide a base proxy url for contacting the api");
+      }
 
-        if (!codylindley || !codylindley.swip
-          || typeof(codylindley.swip.createPopup) != "function") {
-          throw new BoxError("Could not find codylindley popup library."
-            + " Did you forget to load it?");
-        }
+      if (!boxApi.apiKey) {
+        fail("Must provide an apiKey for contacting the api");
+      }
 
-        boxApi.dbg("Self test passed; Api Loaded");
-      },
+      if (!goessner
+        || typeof(goessner.parseXmlStringToJsonObj) != "function") {
+        fail("Could not find goessner library. Did you forget to load it?");
+      }
+
+      var xml = "<xml>value</xml>";
+      var json = goessner.parseXmlStringToJsonObj(xml);
+
+      if (json.xml != "value") {
+        fail("Goessner fail: Can't parse json from xml.");
+      }
+
+      if (!codylindley || !codylindley.swip
+        || typeof(codylindley.swip.createPopup) != "function") {
+        fail("Could not find codylindley popup library. Did you forget to load it?");
+      }
+
+      boxApi.dbg("Self test passed; Api Loaded");
+    },
     /**
      * Load the requested API type
      * E.g. boxApi.load("folderApi") will create the folderApi object, which
      * ...can then be accessed like: boxApi.folderApi...
      */
     load : function boxApiLoad(type) {
-        if (typeof(apiLoader[type]) != "function")
-        {
-          throw new BoxError("Invalid box api type requested, " + type);
-        }
+      if (typeof(apiLoader[type]) != "function")
+      {
+        throw new BoxError("Invalid box api type requested, " + type);
+      }
 
-        boxApi[type] = apiLoader[type]();
-      },
+      boxApi[type] = apiLoader[type]();
+    },
     /**
      * Show/hide the "loading" stuff
      */
@@ -475,7 +489,6 @@ function CreateFileAndFolderApi() {
         return;
       }
 
-      // files = evt.originalEvent.dataTransfer.files;
       getOrCreateFolder(folderName, function(folder) {
         postFiles(files, folder, callback);
       });
@@ -506,8 +519,9 @@ $(function(){
    <IfModule mod_headers.c>
      Header set Access-Control-Allow-Origin *
    </IfModule>
-   * All others: TODO Explain how to do this through a same origin proxy
+   * All others: TODO Explain how to do this through a same origin proxy or iframe
    * Alternative, release this as a Chrome proxy
+   * ...but for now, developers will need to set up a proxy on their end
    */
 
   boxApi.init();
